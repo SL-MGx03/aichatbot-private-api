@@ -77,7 +77,7 @@ def get_timetable(user_id: str, message: str):
     # Invoke LLM
     
     response = llm.invoke([
-        SystemMessage(content=f"{timetable_system_prompt}\nCURRENT TURN: {new_count} of 8."),
+        SystemMessage(content=f"{TIMETABLE_SYSTEM_PROMPT}\nCURRENT TURN: {new_count} of 8."),
         HumanMessage(content=message)
     ])
 
