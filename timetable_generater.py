@@ -1,7 +1,7 @@
 import re
 import json
 from langchain_core.messages import HumanMessage, SystemMessage
-
+import base64
 from utils import get_llm, get_sessions_collection
 
 llm = get_llm()
