@@ -94,7 +94,7 @@ def format_docs(docs):
         formatted.append(content)
     return "\n\n".join(formatted)
 
-retriever = get_retriver()
+retriever = get_retriever()
 
 rag_chain = (
     {"context": retriever | format_docs, "question": RunnablePassthrough()}
