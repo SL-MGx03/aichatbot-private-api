@@ -5,11 +5,16 @@ from pydantic import BaseModel
 from timetable_generater import get_timetable
 from assistant_model import rag_chain
 
+origins = [
+    "https://slmgx.live",
+    "https://www.slmgx.live",
+    "http://localhost:3000", # local testing
+]
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=origins, 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
