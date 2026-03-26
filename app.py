@@ -1,6 +1,7 @@
-from fastapi import FastAPI, Form, APIRouter
+from fastapi import FastAPI, Form, APIRouter, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 
 from timetable_generater import get_timetable
 from assistant_model import rag_chain
