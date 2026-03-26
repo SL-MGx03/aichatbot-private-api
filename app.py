@@ -37,11 +37,24 @@ async def chat(query: ChatQuery):
         print(f"CRITICAL ERROR: {str(e)}") 
         return {"error": str(e)}
 
+
 @app.post("/timetable-chat")
-async def timetable_chat(message: str = Form(...), user_id: str = Form(...)):
+async def timetable_chat(
+    message: str = Form(...), 
+    user_id: str = Form(...),
+    file: Optional[UploadFile] = File(None) 
+):
     try:
-        return get_timetable(user_id, message)
+        file_bytes = None
+        content_type = None
+        
+        if file:
+            file_bytes = await file.read()
+            content_type = file.content_type
+            
+        return get_timetable(user_id, message, file_bytes, content_type)
     except Exception as e:
+        print(f"Error in timetable-chat: {e}")
         return {"error": str(e)}
 
 
