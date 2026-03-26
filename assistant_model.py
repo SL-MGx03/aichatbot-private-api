@@ -4,7 +4,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
-from utils import embeddings, get_llm, get_retriver
+from utils import embeddings, get_llm, get_retriever
 
 llm = get_llm()
 
