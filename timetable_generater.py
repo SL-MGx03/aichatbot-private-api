@@ -10,7 +10,7 @@ sessions = get_sessions_collection()
 
 
 TIMETABLE_SYSTEM_PROMPT = """
-You are the "Exam Timetable Architect" for slmgx.live and your nick name is Queen Lizzy 🩵. 
+You are the "Exam Timetable Architect" for slmgx.live and your nick name is Lizzy 🩵. 
 Your goal is to help the user create a personal study schedule for exams.
 
 STEPS:
@@ -47,7 +47,7 @@ JSON STRUCTURE:
 
 
 
-def get_timetable(user_id: str, message: str):
+def get_timetable(user_id: str, message: str, file_bytes: bytes = None, content_type: str = None):
     session = sessions.find_one({"user_id": user_id})
     if not session:
         session = {
@@ -63,34 +63,48 @@ def get_timetable(user_id: str, message: str):
 
     new_count = session["turn_count"] + 1
     
-    # Simple check for timetable-like keywords in message (or user flag)
-    if any(word in message.lower() for word in ["monday", "subject", "schedule", "exam date"]):
+    content_list = [{"type": "text", "text": message}]
+    if file_bytes:
+        encoded_image = base64.b64encode(file_bytes).decode("utf-8")
+        content_list.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{content_type};base64,{encoded_image}"}
+        })
+        # Mark as having timetable since they provided a document
         sessions.update_one({"user_id": user_id}, {"$set": {"has_timetable": True}})
         session["has_timetable"] = True
 
-    # Check if user failed to provide timetable within 3 turns
+    # Check text for keywords if no file was sent
+    elif any(word in message.lower() for word in ["monday", "subject", "schedule", "exam date", "timetable"]):
+        sessions.update_one({"user_id": user_id}, {"$set": {"has_timetable": True}})
+        session["has_timetable"] = True
+
+    #  Block if no info provided by turn 4
     if not session["has_timetable"] and new_count > 3:
         sessions.update_one({"user_id": user_id}, {"$set": {"is_blocked": True}})
-        print(f"DEBUG: User {user_id} blocked. Failed Rule 5.")
         return {"type": "ERROR", "content": "I can't proceed without your exam dates. Support terminated."}
 
-    # Invoke LLM
+    # Invoke the AI
+    try:
+        response = llm.invoke([
+            SystemMessage(content=f"{TIMETABLE_SYSTEM_PROMPT}\nCURRENT TURN: {new_count} of 8."),
+            HumanMessage(content=content_list)
+        ])
+        res_text = response.content
+    except Exception as e:
+        return {"type": "ERROR", "content": f"AI Error: {str(e)}"}
     
-    response = llm.invoke([
-        SystemMessage(content=f"{TIMETABLE_SYSTEM_PROMPT}\nCURRENT TURN: {new_count} of 8."),
-        HumanMessage(content=message)
-    ])
-
-    res_text = response.content
-    
-    # Detect JSON 
+    #  Handle JSON vs TEXT responses
     if "{" in res_text and "}" in res_text:
         json_match = re.search(r'\{.*\}', res_text, re.DOTALL)
         if json_match:
-            sessions.delete_one({"user_id": user_id})
-            return {"type": "DATA", "content": json.loads(json_match.group(0))}
+            try:
+                # Session is finished, clean up DB memory
+                sessions.delete_one({"user_id": user_id})
+                return {"type": "DATA", "content": json.loads(json_match.group(0))}
+            except json.JSONDecodeError:
+                pass 
 
-    # Update MongoDB turn count if still chatting
     sessions.update_one({"user_id": user_id}, {"$set": {"turn_count": new_count}})
     
     return {"type": "TEXT", "content": res_text, "turn": new_count}
