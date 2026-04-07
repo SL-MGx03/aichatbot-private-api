@@ -9,6 +9,7 @@ pymongo
 langchain-mongodb
 langchain_core
 langchain-community
+langgraph.checkpoint.mongodb
 ipython
 uvicorn
 aiofiles
