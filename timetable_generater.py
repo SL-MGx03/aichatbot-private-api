@@ -55,8 +55,8 @@ def get_timetable(user_id: str, message: str, file_bytes: bytes = None, content_
     if session["has_timetable"]:
         sessions.update_one({"user_id": user_id}, {"$set": {"has_timetable": True}})
 
-    # Block if no timetable info provided by turn 4
-    if not session["has_timetable"] and new_count > 3:
+    # Block if no timetable info provided by turn 6
+    if not session["has_timetable"] and new_count > 5:
         sessions.update_one({"user_id": user_id}, {"$set": {"is_blocked": True}})
         return {"type": "ERROR", "content": "I can't proceed without your exam dates. Support terminated."}
 
