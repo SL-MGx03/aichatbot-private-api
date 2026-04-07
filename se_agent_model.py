@@ -106,6 +106,16 @@ def se_agent():
     return agent
 
 
+def show_agent(agent):
+    try:
+        png_bytes = agent.get_graph(xray=True).draw_mermaid_png()
+        with open("agent_graph.png", "wb") as f:
+            f.write(png_bytes)
+            
+        print("Success! Open 'agent_graph.png' in your folder to see the flow.")
+    except Exception as e:
+        print(f"Could not generate graph: {e}")
+
 model= ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
 
 tools = [software_knowledgebase, get_uml_viewer_link]
