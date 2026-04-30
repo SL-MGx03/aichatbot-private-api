@@ -12,6 +12,8 @@ from se_agent_model import se_agent
 origins = [
     "https://slmgx.live",
     "https://www.slmgx.live",
+    "https://slmgx.edu.lk",
+    "https://www.slmgx.edu.lk",
     "http://localhost:3000", # local testing
 ]
 
