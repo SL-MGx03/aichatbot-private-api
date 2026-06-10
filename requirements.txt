@@ -5,6 +5,7 @@ python-dotenv
 python-multipart
 pydantic
 langchain-google-genai
+langchain-groq
 pymongo
 langchain-mongodb
 langchain_core
