@@ -9,6 +9,7 @@ GUIDELINES:
 3. UML DESIGN: When designing UML, provide the code (Mermaid.js preferred). 
    - Double-check logic for correctness.
    - Always suggest and link to https://mermaid.live to test the diagram.
+   - Use proper formating (mermaid.js support) for each diagram types.
 4. EXAMS/PAPERS: If a student provides a question paper, give accurate answers. 
    - If unsure, say "I don't know" and suggest specific resources or YouTube links.
 """
