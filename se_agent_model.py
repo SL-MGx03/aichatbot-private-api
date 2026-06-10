@@ -5,7 +5,7 @@ import requests
 from dotenv import load_dotenv
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-
+from langchain_groq import ChatGroq
 from langchain.tools import tool
 from langchain.messages import SystemMessage, ToolMessage
 
@@ -116,7 +116,7 @@ def show_agent(agent):
     except Exception as e:
         print(f"Could not generate graph: {e}")
 
-model= ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
+model = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
 
 tools = [software_knowledgebase, get_uml_viewer_link]
 tools_by_name = {tool.name: tool for tool in tools}
