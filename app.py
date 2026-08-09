@@ -1,14 +1,17 @@
-from fastapi import FastAPI, Form, APIRouter, File, UploadFile
+import uuid
+import logging
+from typing import Optional, List
+from fastapi import FastAPI, Form, APIRouter, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
-import logging
 
 from langchain.messages import HumanMessage
 
 from timetable_generater import get_timetable
 from assistant_model import rag_chain
 from se_agent_model import se_agent
+from gpa_agent import app as gpa_agent_graph
+from langgraph.types import Command
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("fastapi_app")
