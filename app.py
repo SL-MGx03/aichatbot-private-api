@@ -44,7 +44,7 @@ class CourseItemSchema(BaseModel):
 
 class GPAConfirmQuery(BaseModel):
     thread_id: str
-    degree_type: str  # "90_credits" or "120_credits"
+    degree_type: str
     confirmed_courses: List[CourseItemSchema]
 
 
@@ -110,10 +110,10 @@ async def upload_gpa_sheet(
     custom_rules: Optional[str] = Form("OUSL Sri Lanka GPA Scale")
 ):
     """
-    Phase 1: Receives Excel sheet, extracts passed courses, and pauses execution.
-    Returns the thread_id and draft extracted courses to the frontend table UI.
+    Phase 1: Parses uploaded Excel/HTML result sheet, extracts passed courses, and pauses execution.
     """
     try:
+        logger.info(f"[/gpa/upload] File received: {file.filename}, Degree: {degree_type}")
         file_bytes = await file.read()
         thread_id = str(uuid.uuid4())
         config = {"configurable": {"thread_id": thread_id}}
@@ -124,35 +124,43 @@ async def upload_gpa_sheet(
             "custom_rules_prompt": custom_rules
         }
 
-        # Execute graph stream until human_review interrupt node
+        # Stream graph until interrupt
         for event in gpa_agent_graph.stream(initial_input, config=config):
-            print(f"[GPA Stream] Executed Step: {list(event.keys())}")
+            logger.info(f"[/gpa/upload Stream Step] Executed: {list(event.keys())}")
 
         current_state = gpa_agent_graph.get_state(config)
+        
         if not current_state.values:
+            logger.error("[/gpa/upload] State values empty after stream execution.")
             raise HTTPException(status_code=500, detail="GPA workflow failed to initialize.")
 
         extracted_courses = current_state.values.get("extracted_courses", [])
+        state_error = current_state.values.get("error")
+
+        logger.info(f"[/gpa/upload] Returning {len(extracted_courses)} extracted courses to client.")
+        if state_error:
+            logger.error(f"[/gpa/upload] State contains error message: {state_error}")
 
         return {
             "status": "AWAITING_HUMAN_CONFIRMATION",
             "thread_id": thread_id,
             "degree_type": degree_type,
-            "extracted_courses": extracted_courses
+            "extracted_courses": extracted_courses,
+            "error": state_error
         }
 
     except Exception as e:
-        print(f"GPA UPLOAD ERROR: {str(e)}")
+        logger.error(f"[/gpa/upload Exception]: {str(e)}", exc_info=True)
         return {"error": str(e)}
 
 
 @app.post("/gpa/confirm")
 async def confirm_gpa_calculation(query: GPAConfirmQuery):
     """
-    Phase 2: Receives confirmed or edited course list along with degree selection.
-    Resumes graph execution to run exact GPA math and generate motivational advisory output.
+    Phase 2: Receives confirmed course list and degree choice. Resumes graph.
     """
     try:
+        logger.info(f"[/gpa/confirm] Resuming thread_id: {query.thread_id}")
         config = {"configurable": {"thread_id": query.thread_id}}
         
         current_state = gpa_agent_graph.get_state(config)
@@ -164,9 +172,8 @@ async def confirm_gpa_calculation(query: GPAConfirmQuery):
             "degree_type": query.degree_type
         }
 
-        # Resume execution via Command payload
         for event in gpa_agent_graph.stream(Command(resume=user_confirmed_payload), config=config):
-            print(f"[GPA Resume] Executed Step: {list(event.keys())}")
+            logger.info(f"[/gpa/confirm Stream Step] Executed: {list(event.keys())}")
 
         final_state = gpa_agent_graph.get_state(config).values
 
@@ -181,7 +188,7 @@ async def confirm_gpa_calculation(query: GPAConfirmQuery):
         }
 
     except Exception as e:
-        print(f"GPA CONFIRM ERROR: {str(e)}")
+        logger.error(f"[/gpa/confirm Exception]: {str(e)}", exc_info=True)
         return {"error": str(e)}
 
 
