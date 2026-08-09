@@ -2,12 +2,16 @@ from fastapi import FastAPI, Form, APIRouter, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
+import logging
 
 from langchain.messages import HumanMessage
 
 from timetable_generater import get_timetable
 from assistant_model import rag_chain
 from se_agent_model import se_agent
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("fastapi_app")
 
 origins = [
     "https://slmgx.live",
