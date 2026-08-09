@@ -1,5 +1,6 @@
 import os
 import re
+import logging
 from io import BytesIO
 from typing import TypedDict, Optional, List, Dict, Any, Union
 
@@ -14,6 +15,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt, Command
 
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("gpa_agent")
 
 # Initialize LLM
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
@@ -33,9 +38,42 @@ def normalize_column_name(col: str) -> str:
     )
 
 
+def load_excel_dataframe(file_bytes: bytes, sheet_name: Optional[Union[str, int]] = 0) -> pd.DataFrame:
+    """
+    Robustly loads Excel files. Handles .xlsx, legacy .xls, 
+    and HTML tables disguised as .xls files from web portals.
+    """
+    # 1. Try standard openpyxl (.xlsx)
+    try:
+        df = pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name, dtype=object)
+        logger.info("[Excel Loader] Successfully read via openpyxl (.xlsx)")
+        return df
+    except Exception as e:
+        logger.warning(f"[Excel Loader] openpyxl failed: {e}")
+
+    # 2. Try xlrd for legacy binary .xls
+    try:
+        df = pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name, engine="xlrd", dtype=object)
+        logger.info("[Excel Loader] Successfully read via xlrd (.xls)")
+        return df
+    except Exception as e:
+        logger.warning(f"[Excel Loader] xlrd failed: {e}")
+
+    # 3. Try reading as HTML table (common for university portal .xls exports)
+    try:
+        dfs = pd.read_html(BytesIO(file_bytes))
+        if dfs:
+            logger.info("[Excel Loader] Successfully read as HTML table export")
+            return dfs[0]
+    except Exception as e:
+        logger.warning(f"[Excel Loader] read_html failed: {e}")
+
+    raise ValueError("Could not parse file. Ensure it is a valid Excel file (.xlsx, .xls) or result export.")
+
+
 def excel_to_json(file_bytes: bytes, sheet_name: Optional[Union[str, int]] = 0) -> Dict[str, Any]:
     """Convert an Excel sheet to a JSON-safe dictionary."""
-    df = pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name, dtype=object)
+    df = load_excel_dataframe(file_bytes, sheet_name=sheet_name)
     df = df.dropna(how="all").dropna(axis=1, how="all")
     df.columns = [normalize_column_name(c) for c in df.columns]
     df = df.where(pd.notna(df), None)
@@ -51,7 +89,7 @@ def excel_to_json(file_bytes: bytes, sheet_name: Optional[Union[str, int]] = 0) 
 
 def excel_to_markdown_table(file_bytes: bytes, sheet_name: Optional[Union[str, int]] = 0, max_rows: int = 50) -> str:
     """Convert sheet into markdown table preview for LLM prompt context."""
-    df = pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name, dtype=object)
+    df = load_excel_dataframe(file_bytes, sheet_name=sheet_name)
     df = df.dropna(how="all").dropna(axis=1, how="all")
     df.columns = [normalize_column_name(c) for c in df.columns]
     df = df.where(pd.notna(df), None)
@@ -84,31 +122,25 @@ class CourseItem(TypedDict):
 
 
 class UniversityGPAState(TypedDict):
-    # Inputs
-    file_bytes: bytes                  # Raw Excel file
-    custom_rules_prompt: str           # OUSL university grading rules
-    degree_type: str                   # "90_credits" or "120_credits"
+    file_bytes: bytes                  
+    custom_rules_prompt: str           
+    degree_type: str                   
     
-    # Processed Raw Data
     markdown_table: str
     json_data: Dict[str, Any]
     
-    # HITL Payload
-    extracted_courses: List[CourseItem] # Sent to frontend for user confirmation/edits
+    extracted_courses: List[CourseItem] 
     user_confirmed: bool
     
-    # Python Exact Math Results
     total_completed_credits: float
     target_credits: int
     remaining_credits: float
     calculated_gpa: float
     
-    # Output
-    final_analysis_report: str          # Motivational response & future credit advice
+    final_analysis_report: str          
     error: Optional[str]
 
 
-# Schema used for strict LLM extraction
 class ExtractedCourseRaw(BaseModel):
     course_code: str = Field(description="Course code, e.g., ADU3218")
     course_name: str = Field(description="Title of the course")
@@ -126,18 +158,27 @@ structured_extractor = llm.with_structured_output(CourseListRawSchema)
 
 def convert_excel_node(state: UniversityGPAState) -> Dict[str, Any]:
     """Reads Excel bytes and produces structured Markdown & JSON."""
+    logger.info("--- NODE: convert_excel_node STARTED ---")
     try:
         file_bytes = state["file_bytes"]
         md_table = excel_to_markdown_table(file_bytes)
         json_payload = excel_to_json(file_bytes)
+        
+        logger.info(f"[convert_excel_node] Successfully parsed file. Row count: {json_payload.get('row_count')}")
+        logger.info(f"[convert_excel_node] Columns found: {json_payload.get('columns')}")
+        
         return {"markdown_table": md_table, "json_data": json_payload, "error": None}
     except Exception as e:
-        return {"error": f"Failed to parse Excel file: {str(e)}"}
+        logger.error(f"[convert_excel_node] FAILED: {str(e)}", exc_info=True)
+        return {"error": f"Failed to parse result sheet: {str(e)}"}
 
 
 def extract_courses_node(state: UniversityGPAState) -> Dict[str, Any]:
     """Extracts passed subjects and calculates credit count based on OUSL code structure."""
+    logger.info("--- NODE: extract_courses_node STARTED ---")
+    
     if state.get("error"):
+        logger.error(f"[extract_courses_node] Skipped due to previous error: {state.get('error')}")
         return {"extracted_courses": []}
 
     system_prompt = f"""
@@ -146,7 +187,7 @@ def extract_courses_node(state: UniversityGPAState) -> Dict[str, Any]:
     ### RULES:
     1. Select ONLY subjects where Progress Status is 'Pass'.
     2. Exclude subjects with Progress Status 'NOT Eligible', 'RX', or 'Pending'.
-    3. Exclude any course code where the 3rd letter is 'E' (e.g., CYE3200, CSE3214, LEE3410).
+    3. Exclude any course code where the 3rd letter is 'E' (e.g., CYE3200, CSE3214, LTE3406, FDE3021 ).
     4. Capture course_code, course_name, and grade accurately.
     
     Custom Rules Prompt:
@@ -154,36 +195,43 @@ def extract_courses_node(state: UniversityGPAState) -> Dict[str, Any]:
     """
 
     human_prompt = f"Student Result Sheet:\n{state['markdown_table']}"
-    
-    response: CourseListRawSchema = structured_extractor.invoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=human_prompt)
-    ])
+    logger.info(f"[extract_courses_node] Input Markdown snippet:\n{state['markdown_table'][:300]}...")
 
-    extracted_courses = []
-    for c in response.courses:
-        credit_val = extract_ousl_credits(c.course_code)
-        extracted_courses.append({
-            "course_code": c.course_code,
-            "course_name": c.course_name,
-            "credits": credit_val,
-            "grade": c.grade
-        })
+    try:
+        response: CourseListRawSchema = structured_extractor.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_prompt)
+        ])
+        
+        logger.info(f"[extract_courses_node] LLM Raw Extraction Count: {len(response.courses)}")
 
-    return {"extracted_courses": extracted_courses}
+        extracted_courses = []
+        for c in response.courses:
+            credit_val = extract_ousl_credits(c.course_code)
+            course_obj = {
+                "course_code": c.course_code,
+                "course_name": c.course_name,
+                "credits": credit_val,
+                "grade": c.grade
+            }
+            extracted_courses.append(course_obj)
+            logger.info(f"  -> Extracted: {course_obj}")
+
+        return {"extracted_courses": extracted_courses}
+    except Exception as e:
+        logger.error(f"[extract_courses_node] LLM Extraction Failed: {str(e)}", exc_info=True)
+        return {"extracted_courses": [], "error": f"Extraction failed: {str(e)}"}
 
 
 def human_review_node(state: UniversityGPAState) -> Dict[str, Any]:
-    """
-    Pauses graph execution to send extracted courses and degree choice to the frontend UI.
-    Resumes when the user posts back confirmed/edited items.
-    """
+    logger.info("--- NODE: human_review_node INTERRUPT TRIGGERED ---")
     user_response = interrupt({
         "message": "Please review and confirm your extracted courses and target degree.",
         "extracted_courses": state["extracted_courses"],
         "degree_type": state.get("degree_type", "90_credits")
     })
     
+    logger.info(f"--- NODE: human_review_node RESUMED with payload: {user_response} ---")
     return {
         "extracted_courses": user_response["confirmed_courses"],
         "degree_type": user_response["degree_type"],
@@ -192,7 +240,7 @@ def human_review_node(state: UniversityGPAState) -> Dict[str, Any]:
 
 
 def calculate_gpa_node(state: UniversityGPAState) -> Dict[str, Any]:
-    """Deterministic GPA math engine in pure Python."""
+    logger.info("--- NODE: calculate_gpa_node STARTED ---")
     gpv_map = {
         "A+": 4.00, "A": 4.00, "A-": 3.70,
         "B+": 3.30, "B": 3.00, "B-": 2.70,
@@ -215,6 +263,8 @@ def calculate_gpa_node(state: UniversityGPAState) -> Dict[str, Any]:
     gpa = total_weighted_points / total_completed_credits if total_completed_credits > 0 else 0.0
     remaining_credits = max(0.0, float(target_credits) - total_completed_credits)
 
+    logger.info(f"[calculate_gpa_node] GPA Calculated: {round(gpa, 2)} | Completed Credits: {total_completed_credits}")
+
     return {
         "calculated_gpa": round(gpa, 2),
         "total_completed_credits": total_completed_credits,
@@ -224,29 +274,33 @@ def calculate_gpa_node(state: UniversityGPAState) -> Dict[str, Any]:
 
 
 def generate_ai_analysis_node(state: UniversityGPAState) -> Dict[str, Any]:
-    """Generates an inspiring, motivational academic analysis report."""
+    logger.info("--- NODE: generate_ai_analysis_node STARTED ---")
     is_completed = state["remaining_credits"] <= 0
     status_str = "COMPLETED" if is_completed else "IN PROGRESS"
     
     system_instruction = f"""
-    You are an encouraging academic advisor at Open University of Sri Lanka (OUSL).
-    Analyze the student's academic standing and write an inspiring, highly motivational report.
+    You are an AI academic assistant tool designed to help OUSL students calculate their GPA and plan their course credits.
+    Provide a friendly, supportive, and clear analysis of the user's progress.
+    
+    ### IMPORTANT PERSONA RULES:
+    1. Do NOT pretend to be official university staff, faculty, or an administrator.
+    2. Speak clearly as an AI planning tool assisting the student.
+    3. Keep the tone warm, friendly, encouraging, and clear.
     
     ### ACADEMIC PROFILE:
-    - Degree Track: {state['target_credits']} Credits Degree
-    - Current GPA: {state['calculated_gpa']} / 4.00
+    - Target Degree Track: {state['target_credits']} Credits
+    - Calculated GPA: {state['calculated_gpa']} / 4.00
     - Completed Credits: {state['total_completed_credits']} / {state['target_credits']}
     - Remaining Credits Needed: {state['remaining_credits']}
-    - Graduation Status: {status_str}
+    - Degree Status: {status_str}
     
-    ### INSTRUCTIONS:
-    1. Start with an inspiring greeting acknowledging their effort.
-    2. Provide an honest analysis of their current GPA ({state['calculated_gpa']}).
-    3. If status is 'IN PROGRESS':
-       - Explicitly mention that they need {state['remaining_credits']} more credits to complete their {state['target_credits']}-credit degree target.
-       - Give tactical advice on target grades needed in remaining modules to protect or improve their GPA.
-    4. If status is 'COMPLETED':
-       - Congratulate them on reaching their degree target!
+    ### RESPONSE STRUCTURE:
+    1. A friendly summary of their current GPA ({state['calculated_gpa']}).
+    2. If degree is 'IN PROGRESS':
+       - Mention that they need {state['remaining_credits']} more credits to reach their {state['target_credits']}-credit target.
+       - Provide helpful target grade recommendations for upcoming modules to maintain or improve their GPA.
+    3. If degree is 'COMPLETED':
+       - Celebrate their achievement in reaching their full credit goal!
     """
 
     response = llm.invoke([SystemMessage(content=system_instruction)])
@@ -259,14 +313,12 @@ def generate_ai_analysis_node(state: UniversityGPAState) -> Dict[str, Any]:
 
 workflow = StateGraph(UniversityGPAState)
 
-# Add Nodes
 workflow.add_node("convert_excel", convert_excel_node)
 workflow.add_node("extract_courses", extract_courses_node)
 workflow.add_node("human_review", human_review_node)
 workflow.add_node("calculate_gpa", calculate_gpa_node)
 workflow.add_node("generate_ai_analysis", generate_ai_analysis_node)
 
-# Add Edges
 workflow.add_edge(START, "convert_excel")
 workflow.add_edge("convert_excel", "extract_courses")
 workflow.add_edge("extract_courses", "human_review")
@@ -274,76 +326,5 @@ workflow.add_edge("human_review", "calculate_gpa")
 workflow.add_edge("calculate_gpa", "generate_ai_analysis")
 workflow.add_edge("generate_ai_analysis", END)
 
-# Checkpointer required for state interrupts
 memory = MemorySaver()
 app = workflow.compile(checkpointer=memory)
-
-
-# ==========================================
-# 5. EXECUTION EXAMPLE (SIMULATED FLOW)
-# ==========================================
-
-if __name__ == "__main__":
-    # Create sample Excel data in-memory matching your image sample
-    sample_data = {
-        "Course Code": ["ADU3218", "CPU3101", "CYE3200", "ADU3219"],
-        "Course Name": ["Basic Statistics", "Programming in C", "Continuing Ed Sub", "Applied Maths"],
-        "Last Offered Year": [2024, 2024, 2024, 2024],
-        "Progress Status": ["Pass", "Pass", "Pass", "NOT Eligible"],
-        "Grade": ["A", "B+", "A", "F"],
-        "Attempts": [1, 1, 1, 2],
-        "Eligibility Completed Years": [2, 2, 2, 2],
-        "Eligibility Left": ["-", "-", "-", "-"]
-    }
-    
-    excel_buffer = BytesIO()
-    pd.DataFrame(sample_data).to_excel(excel_buffer, index=False)
-    excel_bytes_data = excel_buffer.getvalue()
-
-    # Unique session configuration
-    thread_config = {"configurable": {"thread_id": "ousl_student_session_1"}}
-
-    print("--- PHASE 1: STARTING GRAPH & PARSING EXCEL ---")
-    initial_input = {
-        "file_bytes": excel_bytes_data,
-        "degree_type": "90_credits",
-        "custom_rules_prompt": "OUSL Sri Lanka GPA scale"
-    }
-
-    # Run until interrupted at human_review
-    for event in app.stream(initial_input, config=thread_config):
-        print(f"Executed step: {list(event.keys())}")
-
-    # Retrieve current paused state to send data to Frontend UI
-    current_state = app.get_state(thread_config)
-    
-    print("\n--- FRONTEND UI PAYLOAD RECEIVED ---")
-    print("Extracted Courses for Table UI:")
-    print(current_state.values["extracted_courses"])
-
-    # --- PHASE 2: SIMULATING FRONTEND USER ACTION ---
-    print("\n--- PHASE 2: USER CONFIRMS DATA & SELECTS 120-CREDIT DEGREE ---")
-    
-    user_confirmed_payload = {
-        "confirmed_courses": current_state.values["extracted_courses"], # Or user edited list
-        "degree_type": "120_credits"                                   # User changed degree track to 120
-    }
-
-    # Resume graph execution passing user choices
-    for event in app.stream(Command(resume=user_confirmed_payload), config=thread_config):
-        print(f"Executed step: {list(event.keys())}")
-
-    # Fetch final graph output
-    final_state = app.get_state(thread_config).values
-
-    print("\n==========================================")
-    print("           CALCULATED RESULTS             ")
-    print("==========================================")
-    print(f"Target Degree Track : {final_state['target_credits']} Credits")
-    print(f"Completed Credits   : {final_state['total_completed_credits']}")
-    print(f"Remaining Credits   : {final_state['remaining_credits']}")
-    print(f"Calculated GPA      : {final_state['calculated_gpa']} / 4.00")
-    print("\n==========================================")
-    print("         AI ADVISORY & MOTIVATION         ")
-    print("==========================================")
-    print(final_state["final_analysis_report"])
