@@ -1,19 +1,8 @@
-import os
 import itertools
-import time
-import logging
-from typing import List, Optional, Type, Any
-from pydantic import BaseModel
-
+import os
 from langchain_groq import ChatGroq
-from langchain_core.messages import BaseMessage
-from groq import RateLimitError
-
-logger = logging.getLogger("gpa_agent.api_pool")
-
 
 def load_groq_keys() -> list[str]:
-    """Loads Groq API keys from environment variables."""
     raw_keys = os.getenv("GROQ_API_KEYS", "")
     keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
 
@@ -23,77 +12,43 @@ def load_groq_keys() -> list[str]:
             keys.append(single_key.strip())
 
     if not keys:
-        raise ValueError(
-            "No Groq API keys found. Set GROQ_API_KEYS in environment variables."
-        )
+        raise ValueError("No Groq API keys found in environment variables.")
 
     return keys
 
-
-# Global round-robin key iterator
-_GROQ_KEYS = load_groq_keys()
-_KEY_CYCLE = itertools.cycle(_GROQ_KEYS)
-
+_keys = load_groq_keys()
+_key_cycle = itertools.cycle(_keys)
 
 def get_next_groq_key() -> str:
-    """Rotates to and returns the next API key in sequence."""
-    key = next(_KEY_CYCLE)
-    logger.info(f"[API Pool] Key selected: {key[:8]}...")
-    return key
+    return next(_key_cycle)
 
+class DynamicChatGroq:
+    """Proxy class that initializes ChatGroq with a fresh key on every invocation."""
 
-def invoke_groq_with_retry(
-    messages: List[BaseMessage],
-    model: str = "llama-3.3-70b-versatile",
-    temperature: float = 0,
-    structured_output_schema: Optional[Type[BaseModel]] = None,
-    max_retries: Optional[int] = None,
-) -> Any:
-    """
-    Invokes ChatGroq with automatic key rotation and retry on RateLimitError (HTTP 429).
-    """
-    # Default retries: cycle through the entire pool twice before throwing an error
-    if max_retries is None:
-        max_retries = len(_GROQ_KEYS) * 2
+    def __init__(self, model: str = "llama-3.3-70b-versatile", temperature: float = 0, **kwargs):
+        self.model = model
+        self.temperature = temperature
+        self.kwargs = kwargs
 
-    attempts = 0
+    def _get_client(self) -> ChatGroq:
+        return ChatGroq(
+            model=self.model,
+            temperature=self.temperature,
+            groq_api_key=get_next_groq_key(),
+            **self.kwargs
+        )
 
-    while attempts < max_retries:
-        api_key = get_next_groq_key()
-        try:
-            llm = ChatGroq(
-                model=model,
-                temperature=temperature,
-                groq_api_key=api_key,
-            )
+    def invoke(self, *args, **kwargs):
+        return self._get_client().invoke(*args, **kwargs)
 
-            if structured_output_schema:
-                runnable = llm.with_structured_output(structured_output_schema)
-                return runnable.invoke(messages)
+    def with_structured_output(self, schema, **kwargs):
+        def _structured_invoke(*args, **call_kwargs):
+            client = self._get_client()
+            extractor = client.with_structured_output(schema, **kwargs)
+            return extractor.invoke(*args, **call_kwargs)
 
-            return llm.invoke(messages)
+        class StructuredProxy:
+            def invoke(self, *args, **call_kwargs):
+                return _structured_invoke(*args, **call_kwargs)
 
-        except RateLimitError as e:
-            attempts += 1
-            logger.warning(
-                f"[API Pool] Key {api_key[:8]}... hit RateLimitError (429). "
-                f"Attempt {attempts}/{max_retries}. Retrying with next key in pool..."
-            )
-            time.sleep(0.5)  # Brief pause before switching keys
-
-        except Exception as e:
-            # Fallback check for 429 string errors in raw exception wrappers
-            if "429" in str(e) or "rate limit" in str(e).lower():
-                attempts += 1
-                logger.warning(
-                    f"[API Pool] Key {api_key[:8]}... hit rate limit. "
-                    f"Attempt {attempts}/{max_retries}. Retrying..."
-                )
-                time.sleep(0.5)
-            else:
-                # Immediately raise non-rate-limit errors (e.g., auth failure, bad prompt)
-                raise e
-
-    raise RuntimeError(
-        f"All Groq API keys in pool failed after {max_retries} retry attempts due to rate limits."
-    )
+        return StructuredProxy()
