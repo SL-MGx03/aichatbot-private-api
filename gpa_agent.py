@@ -14,14 +14,14 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt, Command
 
-load_dotenv()
+from api_pool import DynamicChatGroq
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("gpa_agent")
 
 # Initialize LLM
-llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+llm = DynamicChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
 
 # ==========================================
