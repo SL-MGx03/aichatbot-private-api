@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("gpa_agent")
 
 # Initialize LLM
-llm = DynamicChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+llm = DynamicChatGroq(model="openai/gpt-oss-120b", temperature=0)
 
 
 # ==========================================
