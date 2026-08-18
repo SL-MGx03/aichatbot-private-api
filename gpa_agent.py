@@ -273,35 +273,56 @@ def calculate_gpa_node(state: UniversityGPAState) -> Dict[str, Any]:
 
 def generate_ai_analysis_node(state: UniversityGPAState) -> Dict[str, Any]:
     logger.info("--- NODE: generate_ai_analysis_node STARTED ---")
-    is_completed = state["remaining_credits"] <= 0
-    status_str = "COMPLETED" if is_completed else "IN PROGRESS"
     
-    system_instruction = f"""
-    You are an AI academic assistant tool designed to help OUSL students calculate their GPA and plan their course credits.
-    Provide a friendly, supportive, and clear analysis of the user's progress.
+    calc_gpa = state.get("calculated_gpa", 0.0)
+    completed_cr = state.get("total_completed_credits", 0.0)
+    target_cr = state.get("target_credits", 90)
+    remaining_cr = state.get("remaining_credits", 0.0)
     
-    ### IMPORTANT PERSONA RULES:
-    1. Do NOT pretend to be official university staff, faculty, or an administrator.
-    2. Speak clearly as an AI planning tool assisting the student.
-    3. Keep the tone warm, friendly, encouraging, and clear.
-    
-    ### ACADEMIC PROFILE:
-    - Target Degree Track: {state['target_credits']} Credits
-    - Calculated GPA: {state['calculated_gpa']} / 4.00
-    - Completed Credits: {state['total_completed_credits']} / {state['target_credits']}
-    - Remaining Credits Needed: {state['remaining_credits']}
-    - Degree Status: {status_str}
-    
-    ### RESPONSE STRUCTURE:
-    1. A friendly summary of their current GPA ({state['calculated_gpa']}).
-    2. If degree is 'IN PROGRESS':
-       - Mention that they need {state['remaining_credits']} more credits to reach their {state['target_credits']}-credit target.
-       - Provide helpful target grade recommendations for upcoming modules to maintain or improve their GPA.
-    3. If degree is 'COMPLETED':
-       - Celebrate their achievement in reaching their full credit goal!
-    """
+    is_completed = remaining_cr <= 0
+    maintain_target_gpa = calc_gpa
+    boost_target_overall = min(4.0, round(calc_gpa + 0.10, 2))
+    if remaining_cr > 0:
+        total_pts_needed = boost_target_overall * target_cr
+        pts_earned = calc_gpa * completed_cr
+        req_remaining_gpa = (total_pts_needed - pts_earned) / remaining_cr
+        req_remaining_gpa_str = f"{req_remaining_gpa:.2f}" if req_remaining_gpa <= 4.00 else "Requires > 4.00 (Mathematically Unachievable)"
+    else:
+        req_remaining_gpa_str = "N/A"
 
-    response = llm.invoke([SystemMessage(content=system_instruction)])
+    system_instruction = f"""
+            You are an AI academic assistant tool designed to provide clear, accurate GPA analysis for OUSL students.
+            
+            ### CRITICAL GRADING SYSTEM RULES (OUSL SCALE):
+            - A+ = 4.00 | A = 4.00 | A- = 3.70
+            - B+ = 3.30 | B = 3.00 | B- = 2.70
+            - C+ = 2.30 | C = 2.00 | C- = 1.70
+            - D+ = 1.30 | D = 1.00 | E/F = 0.00
+            - STRICT RULE: A+ and A ALWAYS equal 4.00. NEVER use 4.3 or any value higher than 4.00.
+            
+            ### PRE-COMPUTED DATA (STRICTLY USE THESE EXACT NUMBERS):
+            - Current GPA: {calc_gpa} / 4.00
+            - Completed Credits: {completed_cr} / {target_cr}
+            - Remaining Credits Needed: {remaining_cr}
+            - Status: {"COMPLETED" if is_completed else "IN PROGRESS"}
+            - Req. Average in Remaining Credits to Maintain ({calc_gpa}): ~{calc_gpa:.2f} GPV
+            - Req. Average in Remaining Credits to Reach {boost_target_overall}: {req_remaining_gpa_str}
+            
+            ### INSTRUCTIONS FOR OUTPUT:
+            1. Keep the response friendly, accurate, practical, and non-repetitive.
+            2. Present a clear summary table of current stats.
+            3. If IN PROGRESS:
+               - Explain what grade average is needed in remaining credits to maintain the current GPA.
+               - Give 2 realistic, practical grade combinations using VALID OUSL grades (A/A+=4.0, A-=3.7, B+=3.3, B=3.0) for the remaining {remaining_cr} credits.
+               - DOUBLE CHECK ALL MATH. Ensure total credits in grade combinations sum EXACTLY to {remaining_cr}.
+            4. Provide 3 actionable tips focused on high-credit modules and consistent performance.
+            5. End with an encouraging closing statement offering help to review specific upcoming subjects.
+            """
+
+    response = llm.invoke([
+        SystemMessage(content=system_instruction),
+        HumanMessage(content="Generate my GPA analysis report.")
+    ])
     return {"final_analysis_report": response.content}
 
 
