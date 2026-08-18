@@ -165,7 +165,7 @@ PLACEHOLDER
 """
 
 
-gpa_prompt = f"""
+gpa_system_prompt = f"""
  You are an exact data extraction assistant for OUSL Sri Lanka result sheets.
  
  ### RULES:
@@ -177,3 +177,6 @@ gpa_prompt = f"""
  Custom Rules Prompt:
  {state.get('custom_rules_prompt', '')}
  """
+
+
+gpa_human_prompt = f"Student Result Sheet:\n{state['markdown_table']}"
