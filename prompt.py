@@ -1,8 +1,4 @@
-@@
- from collections import defaultdict
-+state = defaultdict(str)
-+status_str = ""
-@@
+from statelist import UniversityGPAState, CourseItem
 
 SE_PROMPT = """
 You are a professional Software Engineer and helpful assistant for Software Engineering tasks.
