@@ -182,16 +182,14 @@ def extract_courses_node(state: UniversityGPAState) -> Dict[str, Any]:
         return {"extracted_courses": []}
 
     system_prompt = f"""
-    You are an exact data extraction assistant for OUSL Sri Lanka result sheets.
-    
-    ### RULES:
-    1. Select ONLY subjects where Progress Status is 'Pass'.
-    2. Exclude subjects with Progress Status 'NOT Eligible', 'RX', or 'Pending'.
-    3. Exclude any course code where the 3rd letter is 'E' (e.g., CYE3200, CSE3214, LTE3406, FDE3021 ).
-    4. Capture course_code, course_name, and grade accurately.
-    
-    Custom Rules Prompt:
-    {state.get('custom_rules_prompt', '')}
+    "You are an exact data extraction assistant specialized in OUSL Sri Lanka result sheets.\n\n"
+        "### STRICT EXTRACTION RULES:\n"
+        "1. Extract ONLY courses where the Progress Status is explicitly 'Pass'.\n"
+        "2. DO NOT extract courses marked as 'NOT Eligible', 'RX', 'Fail', or 'Pending'.\n"
+        "3. CRITICAL EXCLUSION: NEVER extract any course code where the 3rd letter is 'E' "
+        "(e.g., exclude CYE3200, CSE3214, LTE3406, FDE3021).\n"
+        "4. Output exact course_code, course_name, and grade.\n\n"
+        f"Custom User Rules:\n{state.get('custom_rules_prompt', 'None')}"
     """
 
     human_prompt = f"Student Result Sheet:\n{state['markdown_table']}"
