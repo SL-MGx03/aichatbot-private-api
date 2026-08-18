@@ -15,6 +15,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt, Command
 
 from api_pool import DynamicChatGroq
+from prompt import gpa_prompt
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -181,25 +182,12 @@ def extract_courses_node(state: UniversityGPAState) -> Dict[str, Any]:
         logger.error(f"[extract_courses_node] Skipped due to previous error: {state.get('error')}")
         return {"extracted_courses": []}
 
-    system_prompt = f"""
-    You are an exact data extraction assistant for OUSL Sri Lanka result sheets.
-    
-    ### RULES:
-    1. Select ONLY subjects where Progress Status is 'Pass'.
-    2. Exclude subjects with Progress Status 'NOT Eligible', 'RX', or 'Pending'.
-    3. Exclude any course code where the 3rd letter is 'E' (e.g., CYE3200, CSE3214, LTE3406, FDE3021 ).
-    4. Capture course_code, course_name, and grade accurately.
-    
-    Custom Rules Prompt:
-    {state.get('custom_rules_prompt', '')}
-    """
-
     human_prompt = f"Student Result Sheet:\n{state['markdown_table']}"
     logger.info(f"[extract_courses_node] Input Markdown snippet:\n{state['markdown_table'][:300]}...")
 
     try:
         response: CourseListRawSchema = structured_extractor.invoke([
-            SystemMessage(content=system_prompt),
+            SystemMessage(content=gpa_prompt),
             HumanMessage(content=human_prompt)
         ])
         
