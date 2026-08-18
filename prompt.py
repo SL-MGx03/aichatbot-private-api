@@ -168,7 +168,7 @@ PLACEHOLDER
 
 
 
-state = defaultdict(str) 
+state= UniversityGPAState
 gpa_system_prompt = f"""
  You are an exact data extraction assistant for OUSL Sri Lanka result sheets.
  
