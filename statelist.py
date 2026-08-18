@@ -1,3 +1,5 @@
+from typing import TypedDict, Optional, List, Dict, Any, Union
+
 class CourseItem(TypedDict):
     course_code: str
     course_name: str
