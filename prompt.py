@@ -1,3 +1,6 @@
+from collections import defaultdict
+
+
 SE_PROMPT = """
 You are a professional Software Engineer and helpful assistant for Software Engineering tasks.
 
