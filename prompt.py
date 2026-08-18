@@ -1,6 +1,5 @@
 from collections import defaultdict
 
-
 SE_PROMPT = """
 You are a professional Software Engineer and helpful assistant for Software Engineering tasks.
 
@@ -169,7 +168,7 @@ PLACEHOLDER
 
 
 
-
+state = defaultdict(str) 
 gpa_system_prompt = f"""
  You are an exact data extraction assistant for OUSL Sri Lanka result sheets.
  
