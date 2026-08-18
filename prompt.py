@@ -163,3 +163,17 @@ OUTPUT STYLE
 PLACEHOLDER
 - TECHNICAL CONTEXT is inserted where {context} appears.
 """
+
+
+gpa_prompt = f"""
+ You are an exact data extraction assistant for OUSL Sri Lanka result sheets.
+ 
+ ### RULES:
+ 1. Select ONLY subjects where Progress Status is 'Pass'.
+ 2. Exclude subjects with Progress Status 'NOT Eligible', 'RX', or 'Pending'.
+ 3. Exclude any course code where the 3rd letter is 'E' (e.g., CYE3200, CSE3214, LTE3406, FDE3021 ).
+ 4. Capture course_code, course_name, and grade accurately.
+ 
+ Custom Rules Prompt:
+ {state.get('custom_rules_prompt', '')}
+ """
