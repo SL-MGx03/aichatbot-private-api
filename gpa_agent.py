@@ -16,6 +16,7 @@ from langgraph.types import interrupt, Command
 
 from api_pool import DynamicChatGroq
 from prompt import gpa_system_prompt, gpa_human_prompt, gpa_system_instruction
+from statelist import UniversityGPAState, CourseItem
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
