@@ -15,7 +15,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt, Command
 
 from api_pool import DynamicChatGroq
-from prompt import gpa_prompt
+from prompt import gpa_system_prompt, gpa_human_prompt
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -182,13 +182,12 @@ def extract_courses_node(state: UniversityGPAState) -> Dict[str, Any]:
         logger.error(f"[extract_courses_node] Skipped due to previous error: {state.get('error')}")
         return {"extracted_courses": []}
 
-    human_prompt = f"Student Result Sheet:\n{state['markdown_table']}"
     logger.info(f"[extract_courses_node] Input Markdown snippet:\n{state['markdown_table'][:300]}...")
 
     try:
         response: CourseListRawSchema = structured_extractor.invoke([
-            SystemMessage(content=gpa_prompt),
-            HumanMessage(content=human_prompt)
+            SystemMessage(content=gpa_system_prompt),
+            HumanMessage(content=gpa_human_prompt)
         ])
         
         logger.info(f"[extract_courses_node] LLM Raw Extraction Count: {len(response.courses)}")
