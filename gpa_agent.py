@@ -6,6 +6,7 @@ from io import BytesIO
 import pandas as pd
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from typing import TypedDict, Optional, List, Dict, Any, Union
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
