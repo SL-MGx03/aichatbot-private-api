@@ -1,4 +1,8 @@
-from collections import defaultdict
+@@
+ from collections import defaultdict
++state = defaultdict(str)
++status_str = ""
+@@
 
 SE_PROMPT = """
 You are a professional Software Engineer and helpful assistant for Software Engineering tasks.
